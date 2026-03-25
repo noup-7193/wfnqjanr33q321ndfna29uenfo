@@ -1,5 +1,5 @@
 local plr = game.Players.LocalPlayer
-local oreName = "Abyssalite"
+local oreName = "Stone"
 local basePos = Vector3.new(-7120, -680, -2531)
 local active = false
 local isMining = false -- Флаг зажатия кнопки
@@ -36,7 +36,7 @@ end)
 local function getTool()
     local c = plr.Character
     if not c then return end
-    return c:FindFirstChild("Industrial Drill") or plr.Backpack:FindFirstChild("Industrial Drill")
+    return c:FindFirstChild("Iron Pickaxe") or plr.Backpack:FindFirstChild("Iron Pickaxe")
 end
 
 task.spawn(function()
@@ -64,7 +64,7 @@ task.spawn(function()
                     if not isMining then
                         isMining = true
                         InputRem:FireServer(tool, true) -- Сигнал: "Кнопка нажата"
-                        log.Text = "Mining: Holding Drill..."
+                        log.Text = "Mining: Holding Pickaxe..."
                     end
                     
                     -- Постоянно шлем координаты бурения (как это делает реальный бур)
