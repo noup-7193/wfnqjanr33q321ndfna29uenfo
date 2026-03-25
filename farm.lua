@@ -1,10 +1,10 @@
 local plr = game.Players.LocalPlayer
-local oreName = "Stone"
+local oreName = "Stone" -- Твое название для теста
 local basePos = Vector3.new(-7120, -680, -2531)
 local active = false
-local isMining = false -- Флаг зажатия кнопки
+local isMining = false -- Флаг, чтобы не спамить удары в одну секунду
 
--- GUI (Твой рабочий стиль)
+-- GUI
 local sg = Instance.new("ScreenGui", game.CoreGui)
 local bt = Instance.new("TextButton", sg)
 bt.Size, bt.Position = UDim2.new(0, 150, 0, 50), UDim2.new(0.5, -75, 0.1, 0)
@@ -15,7 +15,7 @@ log.Size, log.Position = UDim2.new(0, 220, 0, 60), UDim2.new(0.5, -110, 0.1, 60)
 log.BackgroundColor3, log.TextColor3, log.BackgroundTransparency = Color3.new(0,0,0), Color3.new(1,1,1), 0.5
 log.Text = "Status: Waiting..."
 
--- События из ReplicatedStorage
+-- События
 local Events = game:GetService("ReplicatedStorage"):WaitForChild("Events")
 local ChargeRem = Events.Tools.Charge
 local InputRem = Events.Tools.ToolInputChanged
@@ -32,22 +32,29 @@ bt.MouseButton1Click:Connect(function()
     end
 end)
 
--- Поиск бура
-local function getTool()
+-- Поиск инструмента и его статов
+local function getToolInfo()
     local c = plr.Character
-    if not c then return end
-    return c:FindFirstChild("Iron Pickaxe") or plr.Backpack:FindFirstChild("Iron Pickaxe")
+    local tool = c:FindFirstChild("Iron Pickaxe") or plr.Backpack:FindFirstChild("Iron Pickaxe")
+    if tool then
+        local data = tool:FindFirstChild("Configuration") and tool.Configuration:FindFirstChild("Data")
+        local cTime = (data and data:FindFirstChild("ChargeTime")) and data.ChargeTime.Value or 0.4
+        local cd = tool.Configuration:FindFirstChild("Cooldown") and tool.Configuration.Cooldown.Value or 0.5
+        return tool, cTime, cd
+    end
+    return nil
 end
 
 task.spawn(function()
-    while task.wait(0.2) do -- Проверка состояния каждые 0.2 сек
+    while true do
+        task.wait(0.1)
         if active then
             pcall(function()
                 local char = plr.Character
                 local root = char.HumanoidRootPart
-                local tool = getTool()
+                local tool, chargeTime, cooldown = getToolInfo()
                 
-                if not tool then log.Text = "Status: No Drill found!"; return end
+                if not tool then log.Text = "Status: No Pickaxe!"; return end
                 if tool.Parent ~= char then tool.Parent = char end
 
                 local ores = workspace.WorldSpawn.Ores
@@ -56,30 +63,41 @@ task.spawn(function()
                     if v.Name == oreName and v:FindFirstChild("Hitbox") then target = v; break end
                 end
 
-                if target then
+                if target and not isMining then
+                    isMining = true -- Блокируем цикл, пока идет удар
                     root.Anchored = true
                     root.CFrame = target.Hitbox.CFrame * CFrame.new(0, 5, 0)
                     
-                    -- Если мы еще не "зажали" кнопку — зажимаем
-                    if not isMining then
-                        isMining = true
-                        InputRem:FireServer(tool, true) -- Сигнал: "Кнопка нажата"
-                        log.Text = "Mining: Holding Pickaxe..."
-                    end
+                    log.Text = "Mining: Charging..."
                     
-                    -- Постоянно шлем координаты бурения (как это делает реальный бур)
+                    -- 1. Сигнал начала использования
+                    InputRem:FireServer(tool, true)
+                    
+                    -- 2. Начинаем замах
                     ChargeRem:FireServer({
                         ["Target"] = target.Hitbox,
                         ["HitPosition"] = target.Hitbox.Position
                     })
-                else
-                    -- Руды нет: "отжимаем" кнопку
-                    if isMining then
-                        isMining = false
-                        InputRem:FireServer(tool, false) -- Сигнал: "Кнопка отпущена"
+                    
+                    -- 3. Ждем идеальный тайминг (из конфига кирки)
+                    task.wait(chargeTime + 0.05)
+                    
+                    -- 4. САМ УДАР (Alpha 1 = 100% урон)
+                    if tool:FindFirstChild("Attack") then
+                        tool.Attack:FireServer({
+                            ["Alpha"] = 1,
+                            ["AnimSpeed"] = 1,
+                            ["DamageMultiplier"] = 1
+                        })
+                        log.Text = "Logs: PERFECT HIT!"
                     end
                     
-                    log.Text = "Status: Searching Abyssalite..."
+                    -- 5. Ждем Кулдаун
+                    task.wait(cooldown)
+                    isMining = false -- Разрешаем следующий удар
+                    
+                elseif not target then
+                    log.Text = "Status: Searching "..oreName.."..."
                     if (root.Position - basePos).Magnitude > 5 then
                         root.CFrame = CFrame.new(basePos)
                     end
