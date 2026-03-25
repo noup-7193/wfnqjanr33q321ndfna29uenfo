@@ -44,7 +44,7 @@ end)
 
 local function getTool()
     local c = plr.Character
-    local t = c:FindFirstChild("Silver Pickaxe") or plr.Backpack:FindFirstChild("Silver Pickaxe")
+    local t = c:FindFirstChild("Titanium Pickaxe") or plr.Backpack:FindFirstChild("Titanium Pickaxe")
     if t then
         local d = t:FindFirstChild("Configuration") and t.Configuration:FindFirstChild("Data")
         local ct = d and d:FindFirstChild("ChargeTime") and d.ChargeTime.Value or 0.4
