@@ -1,5 +1,5 @@
 local plr = game.Players.LocalPlayer
-local oreName = "Copper" -- Поменяй на Abyssalite потом
+local oreName = "Iron" -- Поменяй на Abyssalite потом
 local basePos = Vector3.new(-7120, -680, -2531)
 local active = false
 local isMining = false
