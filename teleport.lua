@@ -1,10 +1,7 @@
--- Определяем, куда вставлять GUI (защита от того, чтобы окно не пропало)
+
 
 local parent = (gethui and gethui()) or game:GetService("CoreGui")
 
-
-
--- Удаляем старую версию, чтобы не накладывались при перезапуске
 
 if parent:FindFirstChild("MyTPGui") then parent.MyTPGui:Destroy() end
 
@@ -19,8 +16,6 @@ ScreenGui.Parent = parent
 ScreenGui.ResetOnSpawn = false
 
 
-
--- Функция для создания кнопок с ТВОЕЙ логикой + добавлен параметр angle
 
 local function createTeleportButton(name, pos, coords, angle, color)
 
@@ -50,13 +45,12 @@ local function createTeleportButton(name, pos, coords, angle, color)
 
         if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
 
-            -- Логика телепорта + поворот на заданный угол
 
             plr.Character.HumanoidRootPart.CFrame = CFrame.new(coords) * CFrame.Angles(0, math.rad(angle), 0)
 
             
 
-            -- Остановка персонажа (чтобы не кикнуло)
+
 
             plr.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
 
@@ -76,7 +70,7 @@ end
 
 
 
--- Создаем кнопки (ПИРС - 0, ПРОДАЖА - 90, ВУЛКАН - -80)
+
 
 createTeleportButton("ФИОЛ", UDim2.new(0.2, 0, 0.5, 0), Vector3.new(-7120, -680, -2531), 15, Color3.fromRGB(52, 152, 219))
 
@@ -84,12 +78,6 @@ createTeleportButton("ПРОДАЖА", UDim2.new(0.2, 0, 0.6, 0), Vector3.new(94
 
 createTeleportButton("ВУЛКАН РУДА", UDim2.new(0.2, 0, 0.7, 0), Vector3.new(-7054, -529, -2769), -50, Color3.fromRGB(231, 80, 60)) 
 
-
----------------------------------------------------------
-
--- ДОПОЛНИТЕЛЬНЫЕ ОКНА ДЛЯ ПОЗИЦИИ И УГЛА (СПРАВА)
-
----------------------------------------------------------
 
 
 
@@ -133,7 +121,7 @@ AngleLabel.TextSize = 14
 
 
 
--- Безопасный цикл обновления данных
+
 
 task.spawn(function()
 
@@ -141,7 +129,6 @@ task.spawn(function()
 
         task.wait(0.1)
 
-        -- Используем pcall как "Try", чтобы ошибка не ломала скрипт
 
         pcall(function()
 

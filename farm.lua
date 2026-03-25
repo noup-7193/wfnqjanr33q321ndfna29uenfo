@@ -50,10 +50,8 @@ local function autoGetTool()
     local char = plr.Character
     if not char then return nil end
     
-    -- Сначала ищем в руках, потом в рюкзаке
     local t = char:FindFirstChild(targetTool) or plr.Backpack:FindFirstChild(targetTool)
     
-    -- Если обсидиановой нет, ищем ЛЮБУЮ кирку как запасной вариант
     if not t then
         for _, item in pairs(plr.Backpack:GetChildren()) do
             if item:IsA("Tool") and item.Name:lower():find("pickaxe") then t = item; break end
@@ -79,7 +77,7 @@ task.spawn(function()
                 local tool, cTime, cd = autoGetTool()
                 
                 if not tool then log.Text = "Status: No Pickaxe found!"; return end
-                if tool.Parent ~= plr.Character then tool.Parent = plr.Character end -- Сама берет в руки
+                if tool.Parent ~= plr.Character then tool.Parent = plr.Character end 
 
                 -- АВТО-ПОИСК АБИССАЛИТА
                 local target = nil
@@ -102,7 +100,6 @@ task.spawn(function()
                     
                     log.Text = "Mining: " .. targetOre
                     
-                    -- УДАРНЫЙ ПАКЕТ
                     InputRem:FireServer(tool, true)
                     
                     local chargeData = {["Target"] = realPart, ["HitPosition"] = targetPos}
@@ -110,22 +107,19 @@ task.spawn(function()
                     task.wait(0.02)
                     ChargeRem:FireServer(chargeData)
                     
-                    -- Быстрый тайминг (рандом для безопасности)
                     task.wait(math.random(7, 12) / 100)
                     
-                    -- Perfect Attack (Spoofed)
                     AttackRem:FireServer({
                         ["Alpha"] = 1, 
                         ["ResponseTime"] = cTime
                     })
                     
                     InputRem:FireServer(tool, false)
-                    task.wait(math.min(cd, 0.2)) -- Сокращенный кулдаун
+                    task.wait(math.min(cd, 0.2))
                     isMining = false
                     
                 elseif not target then
                     log.Text = "Status: Searching " .. targetOre .. "..."
-                    -- Если руды нет, летим на базу ждать респавн
                     if (root.Position - basePos).Magnitude > 10 then
                         root.CFrame = CFrame.new(basePos)
                         toggleFloor(true, root.CFrame)
