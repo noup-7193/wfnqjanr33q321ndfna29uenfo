@@ -1,5 +1,5 @@
 local plr = game.Players.LocalPlayer
-local oreName = "Stone" -- Поменяй на Abyssalite потом
+local oreName = "Copper" -- Поменяй на Abyssalite потом
 local basePos = Vector3.new(-7120, -680, -2531)
 local active = false
 local isMining = false
@@ -44,7 +44,7 @@ end)
 
 local function getTool()
     local c = plr.Character
-    local t = c:FindFirstChild("Iron Pickaxe") or plr.Backpack:FindFirstChild("Iron Pickaxe")
+    local t = c:FindFirstChild("Silver Pickaxe") or plr.Backpack:FindFirstChild("Silver Pickaxe")
     if t then
         local d = t:FindFirstChild("Configuration") and t.Configuration:FindFirstChild("Data")
         local ct = d and d:FindFirstChild("ChargeTime") and d.ChargeTime.Value or 0.4
