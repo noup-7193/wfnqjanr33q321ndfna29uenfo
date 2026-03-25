@@ -1,10 +1,17 @@
 local plr = game.Players.LocalPlayer
-local oreName = "Stone" -- Поменяй на Abyssalite потом
+local oreName = "Stone" -- Для теста на камне
 local basePos = Vector3.new(-7120, -680, -2531)
 local active = false
 local isMining = false
+local floor = nil -- Наша замена Anchor
 
--- ГУИ (Твой стиль)
+-- События
+local Events = game:GetService("ReplicatedStorage"):WaitForChild("Events")
+local ChargeRem = Events.Tools.Charge
+local AttackRem = Events.Tools.Attack -- Из твоего скрина в Events/Tools
+local InputRem = Events.Tools.ToolInputChanged
+
+-- GUI
 local sg = Instance.new("ScreenGui", game.CoreGui)
 local bt = Instance.new("TextButton", sg)
 bt.Size, bt.Position = UDim2.new(0, 150, 0, 50), UDim2.new(0.5, -75, 0.1, 0)
@@ -15,17 +22,36 @@ log.Size, log.Position = UDim2.new(0, 220, 0, 60), UDim2.new(0.5, -110, 0.1, 60)
 log.BackgroundColor3, log.TextColor3, log.BackgroundTransparency = Color3.new(0,0,0), Color3.new(1,1,1), 0.5
 log.Text = "Status: Waiting..."
 
-local Events = game:GetService("ReplicatedStorage"):WaitForChild("Events")
-local ChargeRem = Events.Tools.Charge
-local InputRem = Events.Tools.ToolInputChanged
+-- Создание невидимого пола под ногами
+local function toggleFloor(on, pos)
+    if not on and floor then
+        floor:Destroy()
+        floor = nil
+    elseif on then
+        if not floor then
+            floor = Instance.new("Part")
+            floor.Name = "AntiAnchorFloor"
+            floor.Size = Vector3.new(10, 1, 10)
+            floor.Transparency = 1
+            floor.Anchored = true
+            floor.CanCollide = true
+            floor.CanQuery = false -- Чтобы не мешал лучам (Raycast)
+            floor.Parent = workspace
+        end
+        floor.CFrame = pos * CFrame.new(0, -3.2, 0) -- Чуть ниже ног
+    end
+end
 
 bt.MouseButton1Click:Connect(function()
     active = not active
     bt.Text = active and "AUTO: ON" or "AUTO: OFF"
     bt.BackgroundColor3 = active and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-    if not active and plr.Character then 
-        plr.Character.HumanoidRootPart.Anchored = false 
+    if not active then 
+        toggleFloor(false)
         isMining = false
+        if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            plr.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
+        end
     end
 end)
 
@@ -48,59 +74,64 @@ task.spawn(function()
             pcall(function()
                 local char = plr.Character
                 local root = char.HumanoidRootPart
+                local cam = workspace.CurrentCamera
                 local tool, cTime, cd = getTool()
                 
-                if not tool then log.Text = "Status: No Tool!"; return end
+                if not tool then log.Text = "Status: No Pickaxe!"; return end
                 if tool.Parent ~= char then tool.Parent = char end
 
-                local ores = workspace.WorldSpawn.Ores
+                local folder = workspace.WorldSpawn.Ores
                 local target = nil
-                for _, v in pairs(ores:GetChildren()) do
+                for _, v in pairs(folder:GetChildren()) do
                     if v.Name == oreName and v:FindFirstChild("Hitbox") then target = v; break end
                 end
 
                 if target and not isMining then
                     isMining = true
-                    root.Anchored = true
+                    local hb = target.Hitbox
+                    local targetPos = hb.Position
                     
-                    -- ФИКС: Поворачиваем персонажа лицом к руде
-                    -- Мы встаем чуть в стороне и смотрим в центр хитбокса
-                    local targetPos = target.Hitbox.Position
-                    root.CFrame = CFrame.lookAt(targetPos + Vector3.new(0, 5, 4), targetPos)
+                    -- 1. ТП + Поворот ТЕЛА и КАМЕРЫ на руду
+                    local lookCF = CFrame.lookAt(targetPos + Vector3.new(0, 4, 5), targetPos)
+                    root.CFrame = lookCF
+                    cam.CFrame = CFrame.lookAt(cam.CFrame.Position, targetPos) -- Смотрим камерой
+                    toggleFloor(true, root.CFrame)
                     
-                    log.Text = "Logs: Targeting & Charging..."
+                    log.Text = "Mining: Perfect Hit..."
                     
-                    -- 1. Имитируем зажатие
+                    -- 2. Начинаем замах
                     InputRem:FireServer(tool, true)
-                    
-                    -- 2. Шлем пакет "Зарядки" (Сервер проверяет Target)
                     ChargeRem:FireServer({
-                        ["Target"] = target.Hitbox,
+                        ["Target"] = hb,
                         ["HitPosition"] = targetPos
                     })
                     
-                    -- 3. Ждем время замаха
+                    -- 3. Ждем идеальный тайминг Alpha (зеленая зона)
                     task.wait(cTime + 0.05)
                     
-                    -- 4. Наносим урон (Alpha 1)
+                    -- 4. Удар (Alpha 1)
                     if tool:FindFirstChild("Attack") then
+                        -- Вызываем ивент самой кирки
                         tool.Attack:FireServer({
                             ["Alpha"] = 1,
                             ["AnimSpeed"] = 1,
                             ["DamageMultiplier"] = 1
                         })
-                        log.Text = "Logs: PERFECT HIT!"
+                        -- И на всякий случай глобальный Attack, если кирка не сработает
+                        AttackRem:FireServer(hb, {["Alpha"] = 1})
+                        
+                        log.Text = "Logs: CRITICAL HIT (Alpha 1)"
                     end
                     
-                    -- 5. "Отжимаем" клик, чтобы сбросить состояние
                     InputRem:FireServer(tool, false)
-                    
                     task.wait(cd)
                     isMining = false
+                    
                 elseif not target then
-                    log.Text = "Status: Searching "..oreName
-                    if (root.Position - basePos).Magnitude > 5 then
+                    log.Text = "Status: Searching "..oreName.."..."
+                    if (root.Position - basePos).Magnitude > 10 then
                         root.CFrame = CFrame.new(basePos)
+                        toggleFloor(true, root.CFrame)
                     end
                 end
             end)
