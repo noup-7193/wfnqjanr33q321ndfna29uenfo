@@ -1,14 +1,14 @@
 local plr = game.Players.LocalPlayer
-local oreName = "Iron" -- Поменяй на Abyssalite потом
+local oreName = "Stone" -- Твоя цель
 local basePos = Vector3.new(-7120, -680, -2531)
 local active = false
 local isMining = false
 local floor = nil
 
--- Глобальные события (из твоего Spy)
+-- Глобальные события
 local Events = game:GetService("ReplicatedStorage"):WaitForChild("Events")
 local ChargeRem = Events.Tools.Charge
-local AttackRem = Events.Tools.Attack -- Глобальный ивент!
+local AttackRem = Events.Tools.Attack
 local InputRem = Events.Tools.ToolInputChanged
 
 -- GUI
@@ -44,6 +44,7 @@ end)
 
 local function getTool()
     local c = plr.Character
+    -- Твоя проверка конкретной кирки
     local t = c:FindFirstChild("Titanium Pickaxe") or plr.Backpack:FindFirstChild("Titanium Pickaxe")
     if t then
         local d = t:FindFirstChild("Configuration") and t.Configuration:FindFirstChild("Data")
@@ -56,20 +57,19 @@ end
 
 task.spawn(function()
     while true do
-        task.wait(0.1)
+        task.wait(0.05) -- Ускорил цикл проверки
         if active then
             pcall(function()
                 local root = plr.Character.HumanoidRootPart
                 local cam = workspace.CurrentCamera
                 local tool, cTime, cd = getTool()
                 
-                if not tool then log.Text = "Status: No Tool!"; return end
+                if not tool then log.Text = "Status: No Titanium Pickaxe!"; return end
                 if tool.Parent ~= plr.Character then tool.Parent = plr.Character end
 
                 local ores = workspace.WorldSpawn.Ores
                 local target = nil
                 for _, v in pairs(ores:GetChildren()) do
-                    -- ИЩЕМ ПО ИМЕНИ И ПРОВЕРЯЕМ НАЛИЧИЕ HITTABLE.PART
                     if v.Name == oreName and v:FindFirstChild("Hittable") and v.Hittable:FindFirstChild("Part") then
                         target = v; break
                     end
@@ -77,7 +77,7 @@ task.spawn(function()
 
                 if target and not isMining then
                     isMining = true
-                    local realPart = target.Hittable.Part -- Наша реальная цель из логов!
+                    local realPart = target.Hittable.Part
                     local targetPos = realPart.Position
                     
                     -- ТП и Взгляд
@@ -86,35 +86,32 @@ task.spawn(function()
                     cam.CFrame = CFrame.lookAt(cam.CFrame.Position, targetPos)
                     toggleFloor(true, root.CFrame)
                     
-                    -- 1. Сигнал начала (как в Call #7 твоих логов)
+                    -- 1. Старт
                     InputRem:FireServer(tool, true)
                     
-                    -- 2. Посылаем Charge ДВАЖДЫ (как в твоем Spy)
-                    local chargeData = {
-                        ["Target"] = realPart,
-                        ["HitPosition"] = targetPos
-                    }
+                    -- 2. Charge (шлем дважды для веса)
+                    local chargeData = {["Target"] = realPart, ["HitPosition"] = targetPos}
                     ChargeRem:FireServer(chargeData)
-                    task.wait(0.05)
+                    task.wait(0.02)
                     ChargeRem:FireServer(chargeData)
                     
-                    log.Text = "Mining: Waiting Charge..."
-                    task.wait(cTime + 0.05)
+                    -- 3. МИНИМАЛЬНАЯ РАНДОМНАЯ ЗАДЕРЖКА (вместо cTime)
+                    task.wait(math.random(7, 12) / 100) -- От 0.07 до 0.12 сек
                     
-                    -- 3. ИДЕАЛЬНЫЙ УДАР (как в Call #4 твоего Attack)
+                    -- 4. МОМЕНТАЛЬНЫЙ УДАР (Обманываем сервер ResponseTime-ом)
                     AttackRem:FireServer({
-                        ["Alpha"] = 1, -- Идеальный крит
-                        ["ResponseTime"] = cTime -- Эмулируем время реакции
+                        ["Alpha"] = 1, 
+                        ["ResponseTime"] = cTime -- Врем, что ждали долго
                     })
                     
-                    log.Text = "Logs: PERFECT HIT (Alpha 1)"
+                    log.Text = "Logs: SPEED HIT! (Alpha 1)"
                     
-                    -- 4. Сброс
+                    -- 5. Сброс и укороченный кулдаун
                     InputRem:FireServer(tool, false)
-                    task.wait(cd)
+                    task.wait(math.min(cd, 0.2)) -- Либо родной КД, либо 0.2 сек (что быстрее)
                     isMining = false
                 elseif not target then
-                    log.Text = "Status: Searching "..oreName
+                    log.Text = "Status: Searching " .. oreName
                     if (root.Position - basePos).Magnitude > 10 then
                         root.CFrame = CFrame.new(basePos)
                         toggleFloor(true, root.CFrame)
