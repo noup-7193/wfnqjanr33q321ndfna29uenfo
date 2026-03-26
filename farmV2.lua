@@ -4,17 +4,16 @@ local TOOL_NAME = "Obsidian Pickaxe"
 local BAG_NAME = "Item Bag"
 
 local IDLE_POS = CFrame.new(-7115, -693, -2533)
-local DROP_POS = CFrame.new(932, 40, -702) 
+local DROP_POS = CFrame.new(932, 42, -702) 
 
 -- Зона фарма (Bounding Box)
-local A, B = Vector3.new(-7213, -664, -2580), Vector3.new(-7016, -830, -2478)
+local A, B = Vector3.new(-7184, -703, -2544), Vector3.new(-7057, -720, -2531)
 local ZONE = {
     MIN = Vector3.new(math.min(A.X, B.X) - 5, math.min(A.Y, B.Y) - 5, math.min(A.Z, B.Z) - 5),
     MAX = Vector3.new(math.max(A.X, B.X) + 5, math.max(A.Y, B.Y) + 5, math.max(A.Z, B.Z) + 5)
 }
 
 local MAX_BAG = 5
-local DROP_DELAY = 0.5 
 -- =================================================
 
 local plr = game.Players.LocalPlayer
@@ -22,45 +21,27 @@ local char = plr.Character or plr.CharacterAdded:Wait()
 local root = char:WaitForChild("HumanoidRootPart")
 local Events = game:GetService("ReplicatedStorage"):WaitForChild("Events")
 
-local isBusy = false
-local currentStatus = "IDLE"
+local active = false
+local isBusy = false 
+local statusText = "IDLE"
 local floor = nil
 
 -- [УТИЛИТЫ]
-local function updateFloor(cf)
-    if not cf and floor then floor:Destroy() floor = nil return end
-    if not floor then
-        floor = Instance.new("Part", workspace)
-        floor.Size, floor.Anchored, floor.Transparency = Vector3.new(12, 1, 12), true, 1
-        floor.CanCollide = true
-    end
-    floor.CFrame = cf * CFrame.new(0, -3.2, 0)
-end
-
 local function isInZone(pos)
     return pos.X >= ZONE.MIN.X and pos.X <= ZONE.MAX.X and
            pos.Y >= ZONE.MIN.Y and pos.Y <= ZONE.MAX.Y and
            pos.Z >= ZONE.MIN.Z and pos.Z <= ZONE.MAX.Z
 end
 
--- Поиск кирки (твой метод)
-local function autoGetTool()
-    local t = char:FindFirstChild(TOOL_NAME) or plr.Backpack:FindFirstChild(TOOL_NAME)
-    if not t then
-        for _, item in pairs(plr.Backpack:GetChildren()) do
-            if item:IsA("Tool") and item.Name:lower():find("pickaxe") then t = item; break end
-        end
+local function toggleFloor(cf)
+    if not cf and floor then floor:Destroy() floor = nil return end
+    if not floor then
+        floor = Instance.new("Part", workspace)
+        floor.Size, floor.Anchored, floor.Transparency = Vector3.new(12, 1, 12), true, 1
     end
-    if t then
-        local d = t:FindFirstChild("Configuration") and t.Configuration:FindFirstChild("Data")
-        local ct = d and d:FindFirstChild("ChargeTime") and d.ChargeTime.Value or 0.4
-        local cd = t.Configuration:FindFirstChild("Cooldown") and t.Configuration.Cooldown.Value or 0.5
-        return t, ct, cd
-    end
-    return nil
+    floor.CFrame = cf * CFrame.new(0, -3.2, 0)
 end
 
--- Сбор статистики
 local function getStats()
     local myDrops = {}
     for _, item in pairs(workspace.Grab:GetChildren()) do
@@ -74,9 +55,13 @@ local function getStats()
         end
     end
 
-    local ores = 0
+    local firstOre = nil
+    local minDist = math.huge
     for _, v in pairs(workspace.WorldSpawn.Ores:GetChildren()) do
-        if v.Name == TARGET_ORE and v:FindFirstChild("Hittable") then ores = ores + 1 end
+        if v.Name == TARGET_ORE and v:FindFirstChild("Hittable") and v.Hittable:FindFirstChild("Part") then
+            local d = (v.Hittable.Part.Position - IDLE_POS.Position).Magnitude
+            if d < minDist then minDist = d; firstOre = v end
+        end
     end
 
     local bagCount = 0
@@ -88,175 +73,146 @@ local function getStats()
         bagCount = count
     end
 
-    return myDrops, ores, bagCount, bag, bagData
+    return myDrops, firstOre, bagCount, bag, bagData
 end
 
--- ================= СЦЕНАРИИ =================
-
--- 1. МАЙНИНГ ОДНОЙ КУЧКИ (Полный цикл)
-local function doMining()
-    if isBusy then return end
+-- [СЦЕНАРИЙ 1: МАЙНИНГ ОДНОЙ КУЧКИ (ТВОЙ КОД)]
+local function miningScenario(ore)
     isBusy = true
-    currentStatus = "MINING"
+    statusText = "MINING"
     
-    local tool, cTime, cd = autoGetTool()
-    if not tool then 
-        isBusy = false 
-        currentStatus = "IDLE (No Tool)" 
-        return 
-    end
+    local tool = char:FindFirstChild(TOOL_NAME) or plr.Backpack:FindFirstChild(TOOL_NAME)
+    if not tool then isBusy = false return end
+    if tool.Parent ~= char then tool.Parent = char end
 
-    -- Ищем ближайшую кучку к IDLE
-    local targetOre = nil
-    local minDist = math.huge
-    for _, v in pairs(workspace.WorldSpawn.Ores:GetChildren()) do
-        if v.Name == TARGET_ORE and v:FindFirstChild("Hittable") and v.Hittable:FindFirstChild("Part") then
-            local dist = (v.Hittable.Part.Position - IDLE_POS.Position).Magnitude
-            if dist < minDist then
-                minDist = dist
-                targetOre = v
-            end
+    -- Находим данные кирки
+    local config = tool:FindFirstChild("Configuration") and tool.Configuration:FindFirstChild("Data")
+    local cTime = config and config:FindFirstChild("ChargeTime") and config.ChargeTime.Value or 0.4
+    local cd = config and config:FindFirstChild("Cooldown") and config.Cooldown.Value or 0.5
+
+    -- Ломаем ВСЕ части этой руды
+    local nodes = ore.Hittable:GetChildren()
+    for _, node in ipairs(nodes) do
+        local p = node:IsA("BasePart") and node or node:FindFirstChild("Part")
+        if p then
+            root.CFrame = CFrame.lookAt(p.Position + Vector3.new(0, 4, 5), p.Position)
+            toggleFloor(root.CFrame)
+            
+            Events.Tools.ToolInputChanged:FireServer(tool, true)
+            local chargeData = {["Target"] = p, ["HitPosition"] = p.Position}
+            Events.Tools.Charge:FireServer(chargeData)
+            task.wait(0.02)
+            Events.Tools.Charge:FireServer(chargeData)
+            
+            task.wait(math.random(7, 12) / 100)
+            
+            Events.Tools.Attack:FireServer({["Alpha"] = 1, ["ResponseTime"] = cTime})
+            Events.Tools.ToolInputChanged:FireServer(tool, false)
+            task.wait(math.min(cd, 0.3))
         end
     end
 
-    if targetOre and targetOre:FindFirstChild("Hittable") then
-        if tool.Parent ~= char then tool.Parent = char end
-        
-        -- Разбиваем ВСЕ части этой кучки
-        local nodes = targetOre.Hittable:GetChildren()
-        for _, node in ipairs(nodes) do
-            local p = node:IsA("BasePart") and node or node:FindFirstChild("Part")
-            if p then
-                -- ТП к конкретной части
-                root.CFrame = p.CFrame * CFrame.new(0, 4, 5)
-                updateFloor(root.CFrame)
-                task.wait(0.05)
-                
-                -- Твой рабочий метод удара
-                Events.Tools.ToolInputChanged:FireServer(tool, true)
-                local chargeData = {["Target"] = p, ["HitPosition"] = p.Position}
-                Events.Tools.Charge:FireServer(chargeData)
-                task.wait(0.02)
-                Events.Tools.Charge:FireServer(chargeData)
-                
-                task.wait(math.random(7, 12) / 100)
-                
-                Events.Tools.Attack:FireServer({
-                    ["Alpha"] = 1, 
-                    ["ResponseTime"] = cTime
-                })
-                
-                Events.Tools.ToolInputChanged:FireServer(tool, false)
-                task.wait(math.min(cd, 0.3)) -- Задержка между частями
-            end
-        end
-    end
-
-    -- Возврат
     root.CFrame = IDLE_POS
-    updateFloor(IDLE_POS)
+    toggleFloor(IDLE_POS)
     task.wait(0.5)
-    currentStatus = "IDLE"
     isBusy = false
 end
 
--- 2. ТРАНСПОРТИРОВКА (Полный цикл)
-local function doTransport()
-    if isBusy then return end
+-- [СЦЕНАРИЙ 2: ПЕРЕНОСКА (ОБРАБОТКА ДРОПА)]
+local function transportScenario(drops, bag, data)
     isBusy = true
-    currentStatus = "TRANSPORTING"
-
-    local myDrops, _, bagCount, bag, bagData = getStats()
+    statusText = "TRANSPORTING"
     
-    -- А. Сбор до 5 штук (ближайшие к IDLE)
-    if #myDrops > 0 and bagCount < MAX_BAG then
-        if bag.Parent ~= char then bag.Parent = char end
-        
-        table.sort(myDrops, function(a, b)
-            return (a.Part.Position - IDLE_POS.Position).Magnitude < (b.Part.Position - IDLE_POS.Position).Magnitude
-        end)
+    if bag.Parent ~= char then bag.Parent = char end
 
-        for _, item in ipairs(myDrops) do
-            local _, _, cBag = getStats()
-            if cBag >= MAX_BAG then break end
-            
-            local p = item:FindFirstChild("Part")
-            if p then
-                root.CFrame = p.CFrame * CFrame.new(0, 3, 0)
-                updateFloor(root.CFrame)
-                task.wait(0.2)
-                bag.Action:FireServer("Store", p)
-                task.wait(0.4)
-            end
+    -- Сортируем дроп по дистанции к нам, чтобы не летать зигзагами
+    table.sort(drops, function(a, b)
+        return (a.Part.Position - root.Position).Magnitude < (b.Part.Position - root.Position).Magnitude
+    end)
+
+    -- 1. Собираем всё что можем (до 5 штук)
+    for _, item in ipairs(drops) do
+        local _, _, bagCount = getStats()
+        if bagCount >= MAX_BAG then break end
+        
+        local p = item:FindFirstChild("Part")
+        if p then
+            root.CFrame = p.CFrame * CFrame.new(0, 3, 0)
+            toggleFloor(root.CFrame)
+            task.wait(0.2)
+            bag.Action:FireServer("Store", p)
+            task.wait(0.4)
         end
     end
 
-    -- Б. Выгрузка если сумка полная (или просто не пустая)
-    local _, _, finalCount = getStats()
-    if finalCount > 0 then
+    -- 2. Если в сумке есть хоть 1 предмет - везем продавать
+    local _, _, finalBag = getStats()
+    if finalBag > 0 then
         root.CFrame = DROP_POS
-        updateFloor(DROP_POS)
+        toggleFloor(DROP_POS)
         task.wait(1.5)
         
         local safety = 0
-        while bagData.Value ~= "[]" and safety < 15 do
+        while data.Value ~= "[]" and safety < 15 do
             bag.Action:FireServer("Drop")
-            task.wait(DROP_DELAY)
+            task.wait(0.5)
             safety = safety + 1
         end
     end
 
     root.CFrame = IDLE_POS
-    updateFloor(IDLE_POS)
+    toggleFloor(IDLE_POS)
     task.wait(0.5)
-    currentStatus = "IDLE"
     isBusy = false
 end
 
--- ================= GUI =================
+-- [GUI]
 local sg = Instance.new("ScreenGui", game.CoreGui)
-local frame = Instance.new("Frame", sg)
-frame.Size, frame.Position = UDim2.new(0, 220, 0, 240), UDim2.new(0.02, 0, 0.4, 0)
-frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
+local bt = Instance.new("TextButton", sg)
+bt.Size, bt.Position = UDim2.new(0, 160, 0, 50), UDim2.new(0.5, -80, 0.1, 0)
+bt.Text, bt.BackgroundColor3 = "FULL AUTO: OFF", Color3.fromRGB(255, 0, 0)
+bt.TextColor3, bt.Font, bt.TextSize = Color3.new(1,1,1), 3, 18
 
-local statLab = Instance.new("TextLabel", frame)
-statLab.Size, statLab.Position = UDim2.new(1, 0, 0, 100), UDim2.new(0,0,0,0)
-statLab.TextColor3, statLab.BackgroundTransparency = Color3.new(1,1,1), 1
-statLab.TextSize, statLab.Font = 14, 3
-statLab.Text = "Updating..."
+local log = Instance.new("TextLabel", sg)
+log.Size, log.Position = UDim2.new(0, 250, 0, 120), UDim2.new(0.5, -125, 0.1, 60)
+log.BackgroundColor3, log.TextColor3, log.BackgroundTransparency = Color3.new(0,0,0), Color3.new(1,1,1), 0.5
+log.TextSize = 14
 
-local btnMine = Instance.new("TextButton", frame)
-btnMine.Size, btnMine.Position = UDim2.new(0.9, 0, 0, 50), UDim2.new(0.05, 0, 0.45, 0)
-btnMine.Text = "MINE 1 NODE"
-btnMine.BackgroundColor3 = Color3.new(0.2, 0.5, 0.2)
-btnMine.TextColor3, btnMine.Font, btnMine.TextSize = Color3.new(1,1,1), 3, 16
+bt.MouseButton1Click:Connect(function()
+    active = not active
+    bt.Text = active and "FULL AUTO: ON" or "FULL AUTO: OFF"
+    bt.BackgroundColor3 = active and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+    if not active then statusText = "IDLE" toggleFloor(nil) end
+end)
 
-local btnTrans = Instance.new("TextButton", frame)
-btnTrans.Size, btnTrans.Position = UDim2.new(0.9, 0, 0, 50), UDim2.new(0.05, 0, 0.7, 0)
-btnTrans.Text = "TRANSPORT 1 RUN"
-btnTrans.BackgroundColor3 = Color3.new(0.2, 0.2, 0.5)
-btnTrans.TextColor3, btnTrans.Font, btnTrans.TextSize = Color3.new(1,1,1), 3, 16
-
-btnMine.MouseButton1Click:Connect(function() if not isBusy then task.spawn(doMining) end end)
-btnTrans.MouseButton1Click:Connect(function() if not isBusy then task.spawn(doTransport) end end)
-
--- [ГЛАВНЫЙ ПОТОК]
+-- [ГЛАВНЫЙ ЦИКЛ]
 task.spawn(function()
     while true do
-        task.wait(0.3)
-        local myDrops, ores, bagC = getStats()
-        statLab.Text = string.format(
-            " STATUS: %s\n ------------------\n BAG: %d/%d\n DROPS IN ZONE: %d\n ORES ON MAP: %d",
-            currentStatus, bagC, MAX_BAG, #myDrops, ores
-        )
+        task.wait(0.2)
+        local myDrops, nextOre, bagCount, bag, bagData = getStats()
         
-        if not isBusy then
-            if (root.Position - IDLE_POS.Position).Magnitude > 5 then
-                root.CFrame = IDLE_POS
-                updateFloor(IDLE_POS)
-            end
+        log.Text = string.format(
+            " STATUS: %s\n BAG: %d/%d\n DROPS ON FLOOR: %d\n ORES ON MAP: %d",
+            isBusy and statusText or "WAITING", 
+            bagCount, MAX_BAG, #myDrops, nextOre and 1 or 0
+        )
+
+        if active and not isBusy then
+            pcall(function()
+                -- УСЛОВИЕ 1: Если на полу >= 5 блоков ИЛИ сумка не пуста - возим
+                if #myDrops >= 5 or bagCount > 0 then
+                    transportScenario(myDrops, bag, bagData)
+                
+                -- УСЛОВИЕ 2: Если на полу мало блоков - копаем 1 кучку
+                elseif nextOre then
+                    miningScenario(nextOre)
+                
+                -- Иначе стоим на IDLE
+                else
+                    root.CFrame = IDLE_POS
+                    toggleFloor(IDLE_POS)
+                end
+            end)
         end
     end
 end)
-
-for i, v in pairs(getconnections(plr.Idled)) do v:Disable() end
