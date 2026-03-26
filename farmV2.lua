@@ -6,11 +6,12 @@ local BAG_NAME = "Item Bag"
 local basePos = Vector3.new(-7120, -680, -2530)
 local dropPos = CFrame.new(932, 42, -702) 
 
--- Зона фарма (Координаты из твоего сообщения)
+-- ЗОНА ФАРМА (РАСШИРЕНА В 10 РАЗ ДЛЯ СБОРА РАЗЛЕТЕВШИХСЯ КАМНЕЙ)
 local A, B = Vector3.new(-7184, -703, -2544), Vector3.new(-7057, -720, -2531)
+local padding = 50 -- Вот этот параметр делает зону огромной
 local ZONE = {
-    MIN = Vector3.new(math.min(A.X, B.X) - 5, 0, math.min(A.Z, B.Z) - 5),
-    MAX = Vector3.new(math.max(A.X, B.X) + 5, 0, math.max(A.Z, B.Z) + 5)
+    MIN = Vector3.new(math.min(A.X, B.X) - padding, 0, math.min(A.Z, B.Z) - padding),
+    MAX = Vector3.new(math.max(A.X, B.X) + padding, 0, math.max(A.Z, B.Z) + padding)
 }
 
 local MAX_BAG = 5
@@ -76,12 +77,12 @@ local function autoGetTool()
     return nil
 end
 
--- ИСПРАВЛЕННАЯ ЗОНА (2D Проверка, игнорируем высоту)
+-- Проверка 2D (игнорирует высоту)
 local function isInZone(pos)
     return pos.X >= ZONE.MIN.X and pos.X <= ZONE.MAX.X and pos.Z >= ZONE.MIN.Z and pos.Z <= ZONE.MAX.Z
 end
 
--- ИСПРАВЛЕННЫЙ СБОР ДАННЫХ
+-- Сбор данных
 local function getStats()
     local myDrops = {}
     for _, item in pairs(workspace.Grab:GetChildren()) do
@@ -89,13 +90,11 @@ local function getStats()
             local p = item:FindFirstChild("Part")
             local o = item:FindFirstChild("Owner")
             
-            -- Безопасный путь к Data
             local config = item:FindFirstChild("Configuration")
             local data = config and config:FindFirstChild("Data")
             local m = data and data:FindFirstChild("MaterialString")
             
             if p and o and m then
-                -- Проверяем владельца (сработает 100% и на объект, и на строку)
                 local isMine = (typeof(o.Value) == "Instance" and o.Value == plr) or tostring(o.Value) == plr.Name
                 
                 if isMine and m.Value == targetOre and isInZone(p.Position) then
@@ -143,7 +142,7 @@ task.spawn(function()
                     currentAction = "Dumping at Base"
                     root.CFrame = dropPos
                     toggleFloor(true, root.CFrame)
-                    task.wait(1.5) -- Ждем лаг эмулятора
+                    task.wait(1.5) 
                     
                     if bag.Parent ~= plr.Character then bag.Parent = plr.Character end
                     
@@ -154,12 +153,11 @@ task.spawn(function()
                         safety = safety + 1
                     end
                     
-                    -- Мягкий возврат в шахту
                     root.CFrame = CFrame.new(basePos)
                     toggleFloor(true, root.CFrame)
                     task.wait(0.5)
 
-                -- ================== 2. СБОР РУДЫ (Если на полу 5+) ==================
+                -- ================== 2. СБОР РУДЫ ==================
                 elseif #myDrops >= 5 or (#myDrops > 0 and bagCount + #myDrops >= MAX_BAG) then
                     currentAction = "Collecting Drops"
                     if bag.Parent ~= plr.Character then bag.Parent = plr.Character end
@@ -194,7 +192,6 @@ task.spawn(function()
                         local realPart = target.Hittable.Part
                         local targetPos = realPart.Position
                         
-                        -- ТП + Взгляд (Без дерганий)
                         local lookCF = CFrame.lookAt(targetPos + Vector3.new(0, 4, 5), targetPos)
                         root.CFrame = lookCF
                         cam.CFrame = CFrame.lookAt(cam.CFrame.Position, targetPos)
@@ -216,7 +213,6 @@ task.spawn(function()
                         task.wait(math.min(cd, 0.2))
                     else
                         currentAction = "Searching " .. targetOre .. "..."
-                        -- Легкий возврат в центр, только если вообще нет руды в пещере
                         if oresCount == 0 and (root.Position - basePos).Magnitude > 20 then
                             root.CFrame = CFrame.new(basePos)
                             toggleFloor(true, root.CFrame)
@@ -224,7 +220,6 @@ task.spawn(function()
                     end
                 end
 
-                -- Обновление UI
                 log.Text = string.format("Bag: %d/5 | Drops: %d | Ores: %d\n%s", bagCount, #myDrops, oresCount, currentAction)
             end)
         end
