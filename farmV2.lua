@@ -14,6 +14,7 @@ local ZONE = {
 }
 
 local MAX_BAG = 5
+local DROP_DELAY = 0.5 
 -- =================================================
 
 local plr = game.Players.LocalPlayer
@@ -21,31 +22,28 @@ local char = plr.Character or plr.CharacterAdded:Wait()
 local root = char:WaitForChild("HumanoidRootPart")
 local Events = game:GetService("ReplicatedStorage"):WaitForChild("Events")
 
-local active = false
-local isBusy = false 
-local statusText = "OFF"
+local isBusy = false
+local currentStatus = "IDLE"
 local floor = nil
 
--- [СИСТЕМА GUI]
-local sg = Instance.new("ScreenGui", game.CoreGui)
-local bt = Instance.new("TextButton", sg)
-bt.Size, bt.Position = UDim2.new(0, 180, 0, 50), UDim2.new(0.5, -90, 0.05, 0)
-bt.Text, bt.BackgroundColor3 = "SYSTEM: OFF", Color3.new(0.5, 0, 0)
-bt.TextColor3, bt.Font, bt.TextSize = Color3.new(1,1,1), 3, 18
+-- [УТИЛИТЫ]
+local function updateFloor(cf)
+    if not cf and floor then floor:Destroy() floor = nil return end
+    if not floor then
+        floor = Instance.new("Part", workspace)
+        floor.Size, floor.Anchored, floor.Transparency = Vector3.new(12, 1, 12), true, 1
+    end
+    floor.CFrame = cf * CFrame.new(0, -3.2, 0)
+end
 
-local log = Instance.new("TextLabel", sg)
-log.Size, log.Position = UDim2.new(0, 300, 0, 140), UDim2.new(0.5, -150, 0.05, 60)
-log.BackgroundColor3, log.TextColor3, log.BackgroundTransparency = Color3.new(0,0,0), Color3.new(1,1,1), 0.5
-log.TextSize, log.Font = 15, 3
-
--- [ФУНКЦИИ ПРОВЕРКИ]
 local function isInZone(pos)
     return pos.X >= ZONE.MIN.X and pos.X <= ZONE.MAX.X and
            pos.Y >= ZONE.MIN.Y and pos.Y <= ZONE.MAX.Y and
            pos.Z >= ZONE.MIN.Z and pos.Z <= ZONE.MAX.Z
 end
 
-local function getInfo()
+-- Сбор статистики (только инфа)
+local function getStats()
     local myDrops = {}
     for _, item in pairs(workspace.Grab:GetChildren()) do
         if item.Name == "MaterialPart" then
@@ -58,11 +56,9 @@ local function getInfo()
         end
     end
 
-    local firstOre = nil
+    local ores = 0
     for _, v in pairs(workspace.WorldSpawn.Ores:GetChildren()) do
-        if v.Name == TARGET_ORE and v:FindFirstChild("Hittable") then
-            firstOre = v; break
-        end
+        if v.Name == TARGET_ORE and v:FindFirstChild("Hittable") then ores = ores + 1 end
     end
 
     local bagCount = 0
@@ -74,135 +70,160 @@ local function getInfo()
         bagCount = count
     end
 
-    return myDrops, firstOre, bagCount, bag, bagData
+    return myDrops, ores, bagCount, bag, bagData
 end
 
-local function toggleFloor(cf)
-    if not cf and floor then floor:Destroy() floor = nil return end
-    if not floor then
-        floor = Instance.new("Part", workspace)
-        floor.Size, floor.Anchored, floor.Transparency = Vector3.new(12, 1, 12), true, 1
-    end
-    floor.CFrame = cf * CFrame.new(0, -3.2, 0)
-end
+-- ================= СЦЕНАРИИ (РУЧНОЙ ВЫЗОВ) =================
 
--- ================= СЦЕНАРИЙ 1: МАЙНИНГ ОДНОЙ РУДЫ =================
-local function runMiningScenario(ore)
+-- 1. МАЙНИНГ ОДНОЙ КУЧКИ
+local function doMining()
+    if isBusy then return end
     isBusy = true
-    statusText = "ACTION: MINING (1 NODE)"
+    currentStatus = "MINING"
     
-    local tool = char:FindFirstChild(TOOL_NAME) or plr.Backpack:FindFirstChild(TOOL_NAME)
-    if not tool then isBusy = false return end
-    if tool.Parent ~= char then tool.Parent = char end
-
-    -- Проходим строго по Hittable частям этой руды
-    local parts = ore.Hittable:GetChildren()
-    for _, h in ipairs(parts) do
-        local p = h:IsA("BasePart") and h or h:FindFirstChild("Part")
-        if p then
-            root.CFrame = p.CFrame * CFrame.new(0, 4, 3)
-            toggleFloor(root.CFrame)
-            
-            Events.Tools.ToolInputChanged:FireServer(tool, true)
-            Events.Tools.Charge:FireServer({["Target"] = p, ["HitPosition"] = p.Position})
-            task.wait(0.05)
-            Events.Tools.Attack:FireServer({["Alpha"] = 1, ["ResponseTime"] = 0.4})
-            Events.Tools.ToolInputChanged:FireServer(tool, false)
-            task.wait(0.3) -- Cooldown
+    local _, oresCount = getStats()
+    local targetOre = nil
+    local minDist = math.huge
+    
+    -- Ищем ближайшую к IDLE руду
+    for _, v in pairs(workspace.WorldSpawn.Ores:GetChildren()) do
+        if v.Name == TARGET_ORE and v:FindFirstChild("Hittable") and v.Hittable:FindFirstChild("Part") then
+            local dist = (v.Hittable.Part.Position - IDLE_POS.Position).Magnitude
+            if dist < minDist then
+                minDist = dist
+                targetOre = v
+            end
         end
     end
 
-    -- Конец сценария -> IDLE
-    statusText = "STATUS: TRANSITIONING"
+    if targetOre then
+        local tool = char:FindFirstChild(TOOL_NAME) or plr.Backpack:FindFirstChild(TOOL_NAME)
+        if tool then
+            if tool.Parent ~= char then tool.Parent = char end
+            local parts = targetOre.Hittable:GetChildren()
+            for _, h in ipairs(parts) do
+                local p = h:IsA("BasePart") and h or h:FindFirstChild("Part")
+                if p then
+                    root.CFrame = p.CFrame * CFrame.new(0, 4, 3)
+                    updateFloor(root.CFrame)
+                    Events.Tools.ToolInputChanged:FireServer(tool, true)
+                    Events.Tools.Charge:FireServer({["Target"] = p, ["HitPosition"] = p.Position})
+                    task.wait(0.05)
+                    Events.Tools.Attack:FireServer({["Alpha"] = 1, ["ResponseTime"] = 0.4})
+                    Events.Tools.ToolInputChanged:FireServer(tool, false)
+                    task.wait(0.3)
+                end
+            end
+        end
+    end
+
     root.CFrame = IDLE_POS
-    toggleFloor(IDLE_POS)
+    updateFloor(IDLE_POS)
     task.wait(0.5)
+    currentStatus = "IDLE"
     isBusy = false
 end
 
--- ================= СЦЕНАРИЙ 2: СБОР И ВЫГРУЗКА =================
-local function runTransportScenario(drops, bag, data)
+-- 2. ТРАНСПОРТИРОВКА (1 ЦИКЛ)
+local function doTransport()
+    if isBusy then return end
     isBusy = true
-    statusText = "ACTION: COLLECTING DROPS"
-    
-    if bag.Parent ~= char then bag.Parent = char end
+    currentStatus = "TRANSPORTING"
 
-    -- А. Сбор до фулла
-    for i, item in ipairs(drops) do
-        local _, _, bagCount = getInfo()
-        if bagCount >= MAX_BAG then break end
+    local myDrops, _, bagCount, bag, bagData = getStats()
+    
+    -- А. СБОР ДО ФУЛЛА (ближайшие к IDLE)
+    if #myDrops > 0 and bagCount < MAX_BAG then
+        if bag.Parent ~= char then bag.Parent = char end
         
-        local p = item:FindFirstChild("Part")
-        if p then
-            root.CFrame = p.CFrame * CFrame.new(0, 3, 0)
-            toggleFloor(root.CFrame)
-            task.wait(0.2)
-            bag.Action:FireServer("Store", p)
-            task.wait(0.3) -- Даем серверу время
+        -- Сортируем по дистанции к IDLE
+        table.sort(myDrops, function(a, b)
+            return (a.Part.Position - IDLE_POS.Position).Magnitude < (b.Part.Position - IDLE_POS.Position).Magnitude
+        end)
+
+        for _, item in ipairs(myDrops) do
+            local _, _, currentBag = getStats()
+            if currentBag >= MAX_BAG then break end
+            
+            local p = item:FindFirstChild("Part")
+            if p then
+                root.CFrame = p.CFrame * CFrame.new(0, 3, 0)
+                updateFloor(root.CFrame)
+                task.wait(0.2)
+                bag.Action:FireServer("Store", p)
+                task.wait(0.35)
+            end
         end
     end
 
-    -- Б. Если сумка забита - на базу
-    local _, _, finalCount = getInfo()
-    if finalCount >= MAX_BAG then
-        statusText = "ACTION: TELEPORT TO BASE"
+    -- Б. ВЫГРУЗКА (если в сумке что-то есть)
+    local _, _, finalBagCount = getStats()
+    if finalBagCount > 0 then
         root.CFrame = DROP_POS
-        toggleFloor(DROP_POS)
-        task.wait(1.5) -- Прогрузка эмулятора
+        updateFloor(DROP_POS)
+        task.wait(1.5)
         
-        statusText = "ACTION: DUMPING ITEMS"
         local safety = 0
-        while data.Value ~= "[]" and safety < 15 do
+        while bagData.Value ~= "[]" and safety < 15 do
             bag.Action:FireServer("Drop")
-            task.wait(0.5)
+            task.wait(DROP_DELAY)
             safety = safety + 1
         end
     end
 
-    -- Конец сценария -> IDLE
-    statusText = "STATUS: TRANSITIONING"
     root.CFrame = IDLE_POS
-    toggleFloor(IDLE_POS)
+    updateFloor(IDLE_POS)
     task.wait(0.5)
+    currentStatus = "IDLE"
     isBusy = false
 end
 
--- [УПРАВЛЕНИЕ]
-bt.MouseButton1Click:Connect(function()
-    active = not active
-    bt.Text = active and "SYSTEM: ACTIVE" or "SYSTEM: OFF"
-    bt.BackgroundColor3 = active and Color3.new(0, 0.6, 0) or Color3.new(0.6, 0, 0)
-    if not active then statusText = "OFF" toggleFloor(nil) end
+-- ================= GUI (2 КНОПКИ + СТАТУС) =================
+local sg = Instance.new("ScreenGui", game.CoreGui)
+local frame = Instance.new("Frame", sg)
+frame.Size, frame.Position = UDim2.new(0, 220, 0, 240), UDim2.new(0.02, 0, 0.4, 0)
+frame.BackgroundColor3, frame.BorderSizePixel = Color3.new(0.1,0.1,0.1), 0
+
+local statLab = Instance.new("TextLabel", frame)
+statLab.Size, statLab.Position = UDim2.new(1, 0, 0, 100), UDim2.new(0,0,0,0)
+statLab.BackgroundColor3, statLab.TextColor3 = Color3.new(0.15,0.15,0.15), Color3.new(1,1,1)
+statLab.TextSize, statLab.Font = 14, 3
+statLab.Text = "Loading..."
+
+local btnMine = Instance.new("TextButton", frame)
+btnMine.Size, btnMine.Position = UDim2.new(0.9, 0, 0, 50), UDim2.new(0.05, 0, 0.45, 0)
+btnMine.Text, btnMine.BackgroundColor3 = "MINE 1 NODE", Color3.new(0.2, 0.4, 0.2)
+btnMine.TextColor3, btnMine.Font, btnMine.TextSize = Color3.new(1,1,1), 3, 16
+
+local btnTrans = Instance.new("TextButton", frame)
+btnTrans.Size, btnTrans.Position = UDim2.new(0.9, 0, 0, 50), UDim2.new(0.05, 0, 0.7, 0)
+btnTrans.Text, btnTrans.BackgroundColor3 = "TRANSPORT 1 RUN", Color3.new(0.2, 0.2, 0.4)
+btnTrans.TextColor3, btnTrans.Font, btnTrans.TextSize = Color3.new(1,1,1), 3, 16
+
+btnMine.MouseButton1Click:Connect(function() 
+    if not isBusy then task.spawn(doMining) end 
+end)
+btnTrans.MouseButton1Click:Connect(function() 
+    if not isBusy then task.spawn(doTransport) end 
 end)
 
--- [ГЛАВНЫЙ ПОТОК]
+-- [ОБНОВЛЕНИЕ GUI И ПОДДЕРЖКА IDLE]
 task.spawn(function()
     while true do
-        task.wait(0.2)
-        local myDrops, firstOre, bagCount, bag, bagData = getInfo()
+        task.wait(0.3)
+        local myDrops, ores, bagC = getStats()
         
-        log.Text = string.format(
-            " %s\n ----------------------\n BAG: %d/5\n DROPS IN ZONE: %d\n MAP ORES: %s",
-            statusText, bagCount, #myDrops, firstOre and "READY" or "NONE"
+        statLab.Text = string.format(
+            " STATUS: %s\n ------------------\n BAG: %d/%d\n DROPS IN ZONE: %d\n ORES ON MAP: %d",
+            currentStatus, bagC, MAX_BAG, #myDrops, ores
         )
-
-        if active and not isBusy then
-            pcall(function()
-                -- 1. Приоритет Сбора (если на полу есть своё или сумка полная)
-                if #myDrops >= 1 or bagCount >= MAX_BAG then
-                    runTransportScenario(myDrops, bag, bagData)
-                
-                -- 2. Приоритет Копки (если пол чист и есть руда)
-                elseif firstOre then
-                    runMiningScenario(firstOre)
-                
-                -- 3. Ожидание
-                else
-                    statusText = "STATUS: IDLE (Wait Respawn)"
-                    root.CFrame = IDLE_POS
-                    toggleFloor(IDLE_POS)
-                end
-            end)
+        
+        -- Если ничего не делаем - стоим на базе
+        if not isBusy then
+            if (root.Position - IDLE_POS.Position).Magnitude > 5 then
+                root.CFrame = IDLE_POS
+                updateFloor(IDLE_POS)
+            end
         end
     end
 end)
