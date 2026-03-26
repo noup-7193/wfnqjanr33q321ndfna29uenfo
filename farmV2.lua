@@ -6,7 +6,7 @@ local BAG_NAME = "Item Bag"
 local IDLE_POS = CFrame.new(-7115, -693, -2533)
 local DROP_POS = CFrame.new(932, 42, -702) 
 
--- Зона фарма (увеличенная коробка)
+-- Зона фарма (Bounding Box)
 local A, B = Vector3.new(-7184, -703, -2544), Vector3.new(-7057, -720, -2531)
 local ZONE = {
     MIN = Vector3.new(math.min(A.X, B.X) - 5, math.min(A.Y, B.Y) - 5, math.min(A.Z, B.Z) - 5),
@@ -23,18 +23,18 @@ local root = char:WaitForChild("HumanoidRootPart")
 local Events = game:GetService("ReplicatedStorage"):WaitForChild("Events")
 
 local active = false
-local isBusy = false -- ПРЕДОХРАНИТЕЛЬ ОТ ПРЕРЫВАНИЙ
-local status = "OFF"
+local isBusy = false 
+local status = "STATUS: IDLE"
 local floor = nil
 
 -- [УТИЛИТЫ]
 local function updateFloor(cf)
     if not floor then
         floor = Instance.new("Part", workspace)
-        floor.Size, floor.Anchored, floor.Transparency = Vector3.new(12, 1, 12), true, 0.8
-        floor.Color = Color3.new(0, 1, 1)
+        floor.Size, floor.Anchored, floor.Transparency = Vector3.new(12, 1, 12), true, 1
+        floor.CanCollide = true
     end
-    floor.CFrame = cf * CFrame.new(0, -3.2, 0)
+    floor.CFrame = cf * CFrame.new(0, -3.5, 0)
 end
 
 local function isInZone(pos)
@@ -43,7 +43,7 @@ local function isInZone(pos)
            pos.Z >= ZONE.MIN.Z and pos.Z <= ZONE.MAX.Z
 end
 
--- Сбор данных (только свои и только Абиссалит)
+-- Получение данных (строгий фильтр)
 local function getInfo()
     local myDrops = {}
     for _, item in pairs(workspace.Grab:GetChildren()) do
@@ -58,9 +58,13 @@ local function getInfo()
         end
     end
 
-    local ores = 0
+    local oresOnMap = 0
+    local availableOre = nil
     for _, v in pairs(workspace.WorldSpawn.Ores:GetChildren()) do
-        if v.Name == TARGET_ORE then ores = ores + 1 end
+        if v.Name == TARGET_ORE and v:FindFirstChild("Hittable") then
+            oresOnMap = oresOnMap + 1
+            if not availableOre then availableOre = v end
+        end
     end
 
     local bagCount = 0
@@ -72,81 +76,82 @@ local function getInfo()
         bagCount = count
     end
 
-    return myDrops, ores, bagCount, bag, bagData
+    return myDrops, availableOre, bagCount, bag, bagData
 end
 
--- [СЦЕНАРИЙ: ТЕЛЕПОРТ НА IDLE]
+-- Возврат на базу ожидания
 local function goToIdle()
-    status = "STATUS: IDLE (Transitioning)"
+    status = "STATUS: IDLE (Transition)"
     root.CFrame = IDLE_POS
     updateFloor(IDLE_POS)
     task.wait(0.5)
 end
 
--- [СЦЕНАРИЙ: ВЫГРУЗКА]
-local function transportItems(bag, data)
-    isBusy = true
-    goToIdle()
-    
-    status = "STATUS: TRAVELING TO BASE"
-    root.CFrame = DROP_POS
-    updateFloor(DROP_POS)
-    task.wait(1.5) -- Ждем лаг эмулятора
-    
-    if bag.Parent ~= char then bag.Parent = char end
-    
-    status = "STATUS: DUMPING BAG"
-    local safety = 0
-    while data.Value ~= "[]" and safety < 15 do
-        bag.Action:FireServer("Drop")
-        task.wait(DROP_DELAY)
-        safety = safety + 1
-    end
-    
-    goToIdle()
-    isBusy = false
-end
+-- ================= СЦЕНАРИИ =================
 
--- [СЦЕНАРИЙ: СБОР]
-local function collectDrops(dropList, needed)
+-- 1. СБОР И ВЫГРУЗКА (Единый цикл)
+local function transportScenario(bag, data)
     isBusy = true
-    status = "STATUS: GATHERING DROPS"
     
-    local bag = char:FindFirstChild(BAG_NAME) or plr.Backpack:FindFirstChild(BAG_NAME)
-    if bag.Parent ~= char then bag.Parent = char end
-    
-    for i = 1, math.min(#dropList, needed) do
-        local block = dropList[i]
-        local part = block:FindFirstChild("Part")
-        if part then
-            status = "STATUS: PICKING " .. i .. "/" .. needed
-            root.CFrame = part.CFrame * CFrame.new(0, 3, 0)
-            updateFloor(root.CFrame)
-            task.wait(0.2)
-            bag.Action:FireServer("Store", part)
-            task.wait(0.3) -- Пауза чтобы сервер успел "съесть" блок
+    -- А: Собираем что есть на полу до упора
+    local myDrops = getInfo()
+    if #myDrops > 0 then
+        status = "STATUS: COLLECTING DROPS"
+        if bag.Parent ~= char then bag.Parent = char end
+        
+        for i, item in ipairs(myDrops) do
+            local _, _, currentBag = getInfo()
+            if currentBag >= MAX_BAG then break end
+            
+            local p = item:FindFirstChild("Part")
+            if p then
+                status = "PICKING BLOCK " .. i
+                root.CFrame = p.CFrame * CFrame.new(0, 3, 0)
+                updateFloor(root.CFrame)
+                task.wait(0.2)
+                bag.Action:FireServer("Store", p)
+                task.wait(0.3)
+            end
         end
     end
-    
+
+    -- Б: Если после сбора сумка полная - летим на базу
+    local _, _, finalBagCount = getInfo()
+    if finalBagCount >= MAX_BAG then
+        status = "STATUS: TELEPORTING TO SELL"
+        goToIdle()
+        root.CFrame = DROP_POS
+        updateFloor(DROP_POS)
+        task.wait(1.5)
+        
+        status = "STATUS: DUMPING ITEMS"
+        local safety = 0
+        while data.Value ~= "[]" and safety < 15 do
+            bag.Action:FireServer("Drop")
+            task.wait(DROP_DELAY)
+            safety = safety + 1
+        end
+    end
+
     goToIdle()
     isBusy = false
 end
 
--- [СЦЕНАРИЙ: КОПКА]
-local function mineOneOre(ore)
+-- 2. ФАРМ ОДНОЙ КУЧКИ
+local function miningScenario(ore)
     isBusy = true
-    status = "STATUS: MINING ORE NODE"
+    status = "STATUS: MINING FULL NODE"
     
     local tool = char:FindFirstChild(TOOL_NAME) or plr.Backpack:FindFirstChild(TOOL_NAME)
     if not tool then isBusy = false return end
     if tool.Parent ~= char then tool.Parent = char end
 
-    -- Проходим по всем Hittable частям этой ОДНОЙ руды
-    local parts = ore.Hittable:GetChildren()
-    for _, h in pairs(parts) do
-        if h:IsA("BasePart") or h:FindFirstChild("Part") then
-            local p = h:IsA("BasePart") and h or h.Part
-            status = "STATUS: SWINGING PICKAXE"
+    -- Проходим по всем частям руды (обычно их 3)
+    local hitParts = ore.Hittable:GetChildren()
+    for _, h in ipairs(hitParts) do
+        local p = h:IsA("BasePart") and h or h:FindFirstChild("Part")
+        if p then
+            status = "STATUS: SWINGING AT PART"
             root.CFrame = p.CFrame * CFrame.new(0, 4, 3)
             updateFloor(root.CFrame)
             
@@ -163,56 +168,51 @@ local function mineOneOre(ore)
     isBusy = false
 end
 
--- [GUI]
+-- ================= GUI =================
 local sg = Instance.new("ScreenGui", game.CoreGui)
 local bt = Instance.new("TextButton", sg)
 bt.Size, bt.Position = UDim2.new(0, 180, 0, 50), UDim2.new(0.5, -90, 0.05, 0)
-bt.Text, bt.BackgroundColor3 = "SYSTEM: OFF", Color3.fromRGB(255, 0, 0)
+bt.Text, bt.BackgroundColor3 = "FARM: OFF", Color3.new(0.6, 0, 0)
 bt.TextColor3, bt.Font, bt.TextSize = Color3.new(1,1,1), 3, 18
 
 local log = Instance.new("TextLabel", sg)
 log.Size, log.Position = UDim2.new(0, 300, 0, 140), UDim2.new(0.5, -150, 0.05, 60)
 log.BackgroundColor3, log.TextColor3, log.BackgroundTransparency = Color3.new(0,0,0), Color3.new(1,1,1), 0.5
-log.TextSize, log.Font = 15, 3
+log.TextSize, log.Font = 14, 3
 
 bt.MouseButton1Click:Connect(function()
     active = not active
-    bt.Text = active and "SYSTEM: ACTIVE" or "SYSTEM: OFF"
-    bt.BackgroundColor3 = active and Color3.new(0,1,0) or Color3.new(1,0,0)
-    if not active then status = "OFF" if floor then floor:Destroy() floor = nil end end
+    bt.Text = active and "FARM: ACTIVE" or "FARM: OFF"
+    bt.BackgroundColor3 = active and Color3.new(0, 0.5, 0) or Color3.new(0.6, 0, 0)
+    if not active then status = "STATUS: IDLE" if floor then floor:Destroy() floor = nil end end
 end)
 
--- [ГЛАВНЫЙ ЦИКЛ УПРАВЛЕНИЯ]
+-- ================= ГЛАВНЫЙ ПОТОК УПРАВЛЕНИЯ =================
 task.spawn(function()
     while true do
-        task.wait(0.3)
-        local drops, mapOres, inBag, bag, bagData = getInfo()
+        task.wait(0.4)
+        local myDrops, nextOre, inBag, bag, bagData = getInfo()
         
         log.Text = string.format(
-            " %s\n ----------------------\n BAG: %d/5\n DROPS IN ZONE: %d\n ORES ON MAP: %d",
-            status, inBag, #drops, mapOres
+            " %s\n ----------------------\n BAG: %d/5\n DROPS IN ZONE: %d\n ORES AVAILABLE: %s",
+            status, inBag, #myDrops, nextOre and "YES" or "NO"
         )
 
         if active and not isBusy then
             pcall(function()
-                -- 1. Сначала проверяем сумку
-                if inBag >= MAX_BAG then
-                    transportItems(bag, bagData)
-                
-                -- 2. Затем проверяем, нужно ли собирать то, что УЖЕ лежит
-                elseif #drops >= 1 and inBag < MAX_BAG then
-                    collectDrops(drops, MAX_BAG - inBag)
+                -- ПРИОРИТЕТ 1: Выгрузка или Сбор (если есть что нести или сумка полная)
+                if inBag >= MAX_BAG or #myDrops > 0 then
+                    transportScenario(bag, bagData)
 
-                -- 3. Если сумка не полная и на полу пусто - копаем
+                -- ПРИОРИТЕТ 2: Если сумка свободна и на полу чисто - копаем ОДНУ руду
+                elseif nextOre then
+                    miningScenario(nextOre)
+
+                -- ИНАЧЕ: Ждем респавна
                 else
-                    local ore = workspace.WorldSpawn.Ores:FindFirstChild(TARGET_ORE)
-                    if ore then
-                        mineOneOre(ore)
-                    else
-                        status = "STATUS: WAITING FOR RESPAWN"
-                        root.CFrame = IDLE_POS
-                        updateFloor(IDLE_POS)
-                    end
+                    status = "STATUS: WAITING RESPAWN"
+                    root.CFrame = IDLE_POS
+                    updateFloor(IDLE_POS)
                 end
             end)
         end
