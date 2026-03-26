@@ -6,11 +6,11 @@ local BAG_NAME = "Item Bag"
 local basePos = Vector3.new(-7120, -680, -2530)
 local dropPos = CFrame.new(932, 42, -702) 
 
--- Зона фарма (увеличенная коробка для точного поиска СВОЕГО дропа)
+-- Зона фарма (Координаты из твоего сообщения)
 local A, B = Vector3.new(-7184, -703, -2544), Vector3.new(-7057, -720, -2531)
 local ZONE = {
-    MIN = Vector3.new(math.min(A.X, B.X) - 5, math.min(A.Y, B.Y) - 5, math.min(A.Z, B.Z) - 5),
-    MAX = Vector3.new(math.max(A.X, B.X) + 5, math.max(A.Y, B.Y) + 5, math.max(A.Z, B.Z) + 5)
+    MIN = Vector3.new(math.min(A.X, B.X) - 5, 0, math.min(A.Z, B.Z) - 5),
+    MAX = Vector3.new(math.max(A.X, B.X) + 5, 0, math.max(A.Z, B.Z) + 5)
 }
 
 local MAX_BAG = 5
@@ -33,7 +33,7 @@ bt.Text, bt.BackgroundColor3 = "FULL AUTO: OFF", Color3.fromRGB(255, 0, 0)
 bt.TextColor3, bt.Font, bt.TextSize = Color3.new(1,1,1), 3, 18
 
 local log = Instance.new("TextLabel", sg)
-log.Size, log.Position = UDim2.new(0, 250, 0, 80), UDim2.new(0.5, -125, 0.1, 60)
+log.Size, log.Position = UDim2.new(0, 260, 0, 80), UDim2.new(0.5, -130, 0.1, 60)
 log.BackgroundColor3, log.TextColor3, log.BackgroundTransparency = Color3.new(0,0,0), Color3.new(1,1,1), 0.5
 log.TextSize = 14
 log.Text = "Status: Waiting for start"
@@ -76,22 +76,31 @@ local function autoGetTool()
     return nil
 end
 
+-- ИСПРАВЛЕННАЯ ЗОНА (2D Проверка, игнорируем высоту)
 local function isInZone(pos)
-    return pos.X >= ZONE.MIN.X and pos.X <= ZONE.MAX.X and
-           pos.Y >= ZONE.MIN.Y and pos.Y <= ZONE.MAX.Y and
-           pos.Z >= ZONE.MIN.Z and pos.Z <= ZONE.MAX.Z
+    return pos.X >= ZONE.MIN.X and pos.X <= ZONE.MAX.X and pos.Z >= ZONE.MIN.Z and pos.Z <= ZONE.MAX.Z
 end
 
--- Сбор всей инфы за раз
+-- ИСПРАВЛЕННЫЙ СБОР ДАННЫХ
 local function getStats()
     local myDrops = {}
     for _, item in pairs(workspace.Grab:GetChildren()) do
         if item.Name == "MaterialPart" then
             local p = item:FindFirstChild("Part")
             local o = item:FindFirstChild("Owner")
-            local m = item:FindFirstChild("Configuration") and item.Configuration.Data:FindFirstChild("MaterialString")
-            if p and o and o.Value == plr and m and m.Value == targetOre and isInZone(p.Position) then
-                table.insert(myDrops, item)
+            
+            -- Безопасный путь к Data
+            local config = item:FindFirstChild("Configuration")
+            local data = config and config:FindFirstChild("Data")
+            local m = data and data:FindFirstChild("MaterialString")
+            
+            if p and o and m then
+                -- Проверяем владельца (сработает 100% и на объект, и на строку)
+                local isMine = (typeof(o.Value) == "Instance" and o.Value == plr) or tostring(o.Value) == plr.Name
+                
+                if isMine and m.Value == targetOre and isInZone(p.Position) then
+                    table.insert(myDrops, item)
+                end
             end
         end
     end
@@ -99,7 +108,7 @@ local function getStats()
     local oresCount = 0
     for _, v in pairs(workspace.WorldSpawn.Ores:GetChildren()) do
         if v.Name == targetOre and v:FindFirstChild("Hittable") then
-            oresCount = oresCount + #v.Hittable:GetChildren() -- Считаем реальные куски
+            oresCount = oresCount + #v.Hittable:GetChildren()
         end
     end
 
@@ -127,15 +136,16 @@ task.spawn(function()
                 if not tool then log.Text = "Status: No Pickaxe found!"; return end
                 
                 local myDrops, oresCount, bagCount, bag, bagData = getStats()
-                
                 local currentAction = ""
 
-                -- ================== 1. ВЫГРУЗКА ==================
+                -- ================== 1. ВЫГРУЗКА НА БАЗЕ ==================
                 if bagCount >= MAX_BAG then
                     currentAction = "Dumping at Base"
                     root.CFrame = dropPos
                     toggleFloor(true, root.CFrame)
                     task.wait(1.5) -- Ждем лаг эмулятора
+                    
+                    if bag.Parent ~= plr.Character then bag.Parent = plr.Character end
                     
                     local safety = 0
                     while bagData.Value ~= "[]" and safety < 15 do
@@ -144,13 +154,12 @@ task.spawn(function()
                         safety = safety + 1
                     end
                     
-                    -- Возврат в шахту после продажи
+                    -- Мягкий возврат в шахту
                     root.CFrame = CFrame.new(basePos)
                     toggleFloor(true, root.CFrame)
                     task.wait(0.5)
 
-                -- ================== 2. СБОР РУДЫ ==================
-                -- (Собираем, если на полу >= 5, ИЛИ если сбор заполнит сумку до краев)
+                -- ================== 2. СБОР РУДЫ (Если на полу 5+) ==================
                 elseif #myDrops >= 5 or (#myDrops > 0 and bagCount + #myDrops >= MAX_BAG) then
                     currentAction = "Collecting Drops"
                     if bag.Parent ~= plr.Character then bag.Parent = plr.Character end
@@ -169,7 +178,7 @@ task.spawn(function()
                         end
                     end
 
-                -- ================== 3. МАЙНИНГ (ТВОЯ ЛОГИКА) ==================
+                -- ================== 3. ФАРМ ==================
                 else
                     if tool.Parent ~= plr.Character then tool.Parent = plr.Character end 
                     
@@ -185,7 +194,7 @@ task.spawn(function()
                         local realPart = target.Hittable.Part
                         local targetPos = realPart.Position
                         
-                        -- ТП + Взгляд (из твоего скрипта)
+                        -- ТП + Взгляд (Без дерганий)
                         local lookCF = CFrame.lookAt(targetPos + Vector3.new(0, 4, 5), targetPos)
                         root.CFrame = lookCF
                         cam.CFrame = CFrame.lookAt(cam.CFrame.Position, targetPos)
@@ -196,7 +205,9 @@ task.spawn(function()
                         ChargeRem:FireServer(chargeData)
                         task.wait(0.02)
                         ChargeRem:FireServer(chargeData)
+                        
                         task.wait(math.random(7, 12) / 100)
+                        
                         AttackRem:FireServer({
                             ["Alpha"] = 1, 
                             ["ResponseTime"] = cTime
@@ -205,7 +216,8 @@ task.spawn(function()
                         task.wait(math.min(cd, 0.2))
                     else
                         currentAction = "Searching " .. targetOre .. "..."
-                        if (root.Position - basePos).Magnitude > 10 then
+                        -- Легкий возврат в центр, только если вообще нет руды в пещере
+                        if oresCount == 0 and (root.Position - basePos).Magnitude > 20 then
                             root.CFrame = CFrame.new(basePos)
                             toggleFloor(true, root.CFrame)
                         end
