@@ -7,7 +7,7 @@ local IDLE_POS = CFrame.new(-7115, -693, -2533)
 local DROP_POS = CFrame.new(932, 40, -702) 
 
 -- Зона фарма (Bounding Box)
-local A, B = Vector3.new(-7184, -703, -2544), Vector3.new(-7057, -720, -2531)
+local A, B = Vector3.new(-7213, -664, -2580), Vector3.new(-7016, -830, -2478)
 local ZONE = {
     MIN = Vector3.new(math.min(A.X, B.X) - 5, math.min(A.Y, B.Y) - 5, math.min(A.Z, B.Z) - 5),
     MAX = Vector3.new(math.max(A.X, B.X) + 5, math.max(A.Y, B.Y) + 5, math.max(A.Z, B.Z) + 5)
