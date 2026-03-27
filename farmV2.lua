@@ -4,7 +4,7 @@ local targetTool = "Obsidian Pickaxe"
 local BAG_NAME = "Item Bag"
 
 local basePos = Vector3.new(-7120, -680, -2530)
-local dropPos = CFrame.new(2027, 54, -1004) --local dropPos = CFrame.new(932, 42, -702) 
+local dropPos = CFrame.new(932, 42, -702) 
 
 -- ЗОНА ФАРМА (РАСШИРЕНА В 10 РАЗ ДЛЯ СБОРА РАЗЛЕТЕВШИХСЯ КАМНЕЙ)
 local A, B = Vector3.new(-7184, -703, -2544), Vector3.new(-7057, -720, -2531)
