@@ -6,12 +6,14 @@ local BAG_NAME = "Item Bag"
 local basePos = Vector3.new(-7120, -680, -2530)
 local dropPos = CFrame.new(932, 42, -702) 
 
--- ЗОНА ФАРМА (РАСШИРЕНА В 10 РАЗ ДЛЯ СБОРА РАЗЛЕТЕВШИХСЯ КАМНЕЙ)
+-- ЗОНА ФАРМА (С ЗАЩИТОЙ ОТ ПАДЕНИЯ В БЕЗДНУ)
 local A, B = Vector3.new(-7184, -703, -2544), Vector3.new(-7057, -720, -2531)
-local padding = 50 -- Вот этот параметр делает зону огромной
+local padding = 50 
+local SAFE_MIN_Y = -730 -- ЖЕСТКИЙ ЛИМИТ ВЫСОТЫ! Ниже этой цифры бот за камнем не полетит.
+
 local ZONE = {
-    MIN = Vector3.new(math.min(A.X, B.X) - padding, 0, math.min(A.Z, B.Z) - padding),
-    MAX = Vector3.new(math.max(A.X, B.X) + padding, 0, math.max(A.Z, B.Z) + padding)
+    MIN = Vector3.new(math.min(A.X, B.X) - padding, SAFE_MIN_Y, math.min(A.Z, B.Z) - padding),
+    MAX = Vector3.new(math.max(A.X, B.X) + padding, math.huge, math.max(A.Z, B.Z) + padding) -- math.huge = бесконечность вверх
 }
 
 local MAX_BAG = 5
@@ -77,9 +79,11 @@ local function autoGetTool()
     return nil
 end
 
--- Проверка 2D (игнорирует высоту)
+-- Проверка 3D (Умная: игнорирует высоту вверх, но режет высоту вниз)
 local function isInZone(pos)
-    return pos.X >= ZONE.MIN.X and pos.X <= ZONE.MAX.X and pos.Z >= ZONE.MIN.Z and pos.Z <= ZONE.MAX.Z
+    return pos.X >= ZONE.MIN.X and pos.X <= ZONE.MAX.X and 
+           pos.Y >= ZONE.MIN.Y and -- Вот она, защита от падения в бездну!
+           pos.Z >= ZONE.MIN.Z and pos.Z <= ZONE.MAX.Z
 end
 
 -- Сбор данных
@@ -97,6 +101,7 @@ local function getStats()
             if p and o and m then
                 local isMine = (typeof(o.Value) == "Instance" and o.Value == plr) or tostring(o.Value) == plr.Name
                 
+                -- Если блок мой, он Абиссалит, и он НЕ УПАЛ в бездну
                 if isMine and m.Value == targetOre and isInZone(p.Position) then
                     table.insert(myDrops, item)
                 end
