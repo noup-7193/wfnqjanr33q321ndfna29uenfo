@@ -1,6 +1,6 @@
 local plr = game.Players.LocalPlayer
 local targetOre = "Stone"
-local targetTool = "Obsidian Pickaxe"
+local targetTool = "Bronze Pickaxe"
 local basePos = Vector3.new(857, 48, -841)
 
 local active = false
