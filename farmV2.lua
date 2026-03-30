@@ -264,3 +264,43 @@ task.spawn(function()
         end
     end
 end)
+
+local ScreenGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
+local ToggleBtn = Instance.new("TextButton", ScreenGui)
+
+ToggleBtn.Size = UDim2.new(0, 100, 0, 40)
+ToggleBtn.Position = UDim2.new(0, 10, 0, 10)
+ToggleBtn.Text = "OPTIMIZE: OFF"
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+
+local Optimized = false
+
+ToggleBtn.MouseButton1Click:Connect(function()
+    Optimized = not Optimized
+    
+    if Optimized then
+        -- ВКЛЮЧАЕМ ОПТИМИЗАЦИЮ
+        ToggleBtn.Text = "OPTIMIZE: ON"
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        
+        game:GetService("RunService"):Set3dRenderingEnabled(false) -- Выключаем 3D мир
+        settings().Physics.PhysicsEnvironmentalThrottle = Enum.EnviromentalPhysicsThrottle.Always
+        
+        -- Глушим звуки (не удаляя)
+        for _, v in pairs(game:GetDescendants()) do
+            if v:IsA("Sound") then v.Volume = 0 end
+        end
+    else
+        -- ВЫКЛЮЧАЕМ (ВОЗВРАЩАЕМ КАК БЫЛО)
+        ToggleBtn.Text = "OPTIMIZE: OFF"
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+        
+        game:GetService("RunService"):Set3dRenderingEnabled(true) -- Включаем 3D мир
+        settings().Physics.PhysicsEnvironmentalThrottle = Enum.EnviromentalPhysicsThrottle.Default
+        
+        -- Возвращаем звуки (примерно на среднюю громкость)
+        for _, v in pairs(game:GetDescendants()) do
+            if v:IsA("Sound") then v.Volume = 0.5 end
+        end
+    end
+end)
