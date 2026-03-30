@@ -142,15 +142,29 @@ task.spawn(function()
                 local myDrops, oresCount, bagCount, bag, bagData = getStats()
                 local currentAction = ""
 
-                -- ================== 1. ВЫГРУЗКА НА БАЗЕ ==================
+                -- ================== 1. ВЫГРУЗКА И ПРОДАЖА ==================
                 if bagCount >= MAX_BAG then
-                    currentAction = "Dumping at Base"
-                    root.CFrame = dropPos
+                    currentAction = "Selling Ores"
+                    
+                    -- Сообщаем серверу, что мы перестали копать (защита)
+                    InputRem:FireServer(tool, false)
+                    
+                    local structures = workspace.Map.Structures
+                    local sellArea = structures.Nova_Sellary.SellZone.Area
+                    local talkPart = structures.Nova_Sellary.TalkPart
+
+                    -- Вычисляем рандомную координату в зоне
+                    local safeX = (sellArea.Size.X / 2) - 8
+                    local safeZ = (sellArea.Size.Z / 2) - 8
+                    local dropCFrame = sellArea.CFrame * CFrame.new(math.random(-safeX, safeX), 5, math.random(-safeZ, safeZ))
+                    
+                    root.CFrame = dropCFrame
                     toggleFloor(true, root.CFrame)
-                    task.wait(1.5) 
+                    task.wait(math.random(4, 7) / 10) 
                     
                     if bag.Parent ~= plr.Character then bag.Parent = plr.Character end
                     
+                    -- Сбрасываем руду
                     local safety = 0
                     while bagData.Value ~= "[]" and safety < 15 do
                         bag.Action:FireServer("Drop")
@@ -158,6 +172,22 @@ task.spawn(function()
                         safety = safety + 1
                     end
                     
+                    -- Ждем пока физика руды отработает
+                    task.wait(math.random(10, 15) / 10)
+
+                    -- ТПхаемся к NPC с небольшим разбросом
+                    root.CFrame = talkPart.CFrame * CFrame.new(math.random(-3, 3), 0, math.random(-3, 3))
+                    toggleFloor(true, root.CFrame)
+                    task.wait(math.random(5, 9) / 10)
+
+                    -- Подтверждаем сделку
+                    if talkPart:FindFirstChild("Interact") then
+                        talkPart.Interact:FireServer("Deal", 1)
+                    end
+                    
+                    task.wait(math.random(8, 12) / 10)
+                    
+                    -- Возврат на точку старта фарма
                     root.CFrame = CFrame.new(basePos)
                     toggleFloor(true, root.CFrame)
                     task.wait(0.5)
