@@ -1,6 +1,5 @@
 local plr = game.Players.LocalPlayer
-local targetOre = "Stone"
-local targetTool = "Bronze Pickaxe"
+local targetOres = {"Stone", "Iron", "Copper", "Granite", "Marble", "Silver"}
 local basePos = Vector3.new(857, 48, -841)
 
 local active = false
@@ -16,16 +15,16 @@ local InputRem = Events.Tools.ToolInputChanged
 -- GUI
 local sg = Instance.new("ScreenGui", game.CoreGui)
 local bt = Instance.new("TextButton", sg)
-bt.Size, bt.Position = UDim2.new(0, 160, 0, 50), UDim2.new(0.5, -80, 0.1, 0)
-bt.Text, bt.BackgroundColor3 = "FULL AUTO: OFF", Color3.fromRGB(255, 0, 0)
+bt.Size, bt.Position = UDim2.new(0, 180, 0, 50), UDim2.new(0.5, -90, 0.1, 0)
+bt.Text, bt.BackgroundColor3 = "AUTO FARM: OFF", Color3.fromRGB(255, 0, 0)
 bt.TextColor3, bt.Font, bt.TextSize = Color3.new(1,1,1), 3, 18
 
 local log = Instance.new("TextLabel", sg)
-log.Size, log.Position = UDim2.new(0, 250, 0, 60), UDim2.new(0.5, -125, 0.1, 60)
+log.Size, log.Position = UDim2.new(0, 300, 0, 60), UDim2.new(0.5, -150, 0.1, 60)
 log.BackgroundColor3, log.TextColor3, log.BackgroundTransparency = Color3.new(0,0,0), Color3.new(1,1,1), 0.5
 log.Text = "Status: Waiting for start"
 
--- Платформа (замена Anchor)
+-- Платформа
 local function toggleFloor(on, pos)
     if not on and floor then floor:Destroy() floor = nil
     elseif on then
@@ -40,29 +39,39 @@ end
 
 bt.MouseButton1Click:Connect(function()
     active = not active
-    bt.Text = active and "FULL AUTO: ON" or "FULL AUTO: OFF"
+    bt.Text = active and "AUTO FARM: ON" or "AUTO FARM: OFF"
     bt.BackgroundColor3 = active and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
     if not active then toggleFloor(false) isMining = false end
 end)
 
--- АВТО-ПОИСК КИРКИ
-local function autoGetTool()
-    local char = plr.Character
-    if not char then return nil end
+-- ФУНКЦИЯ ПОИСКА ЛУЧШЕЙ КИРКИ
+local function getBestPickaxe()
+    local bestTool = nil
+    local maxTier = -1
     
-    local t = char:FindFirstChild(targetTool) or plr.Backpack:FindFirstChild(targetTool)
+    -- Проверяем инвентарь и персонажа
+    local locations = {plr.Backpack, plr.Character}
     
-    if not t then
-        for _, item in pairs(plr.Backpack:GetChildren()) do
-            if item:IsA("Tool") and item.Name:lower():find("pickaxe") then t = item; break end
+    for _, location in pairs(locations) do
+        for _, item in pairs(location:GetChildren()) do
+            if item:IsA("Tool") and (item.Name:lower():find("pickaxe") or item:FindFirstChild("Configuration")) then
+                local tierObj = item:FindFirstChild("Configuration") and item.Configuration:FindFirstChild("Tier")
+                if tierObj then
+                    if tierObj.Value > maxTier then
+                        maxTier = tierObj.Value
+                        bestTool = item
+                    end
+                end
+            end
         end
     end
     
-    if t then
-        local d = t:FindFirstChild("Configuration") and t.Configuration:FindFirstChild("Data")
-        local ct = d and d:FindFirstChild("ChargeTime") and d.ChargeTime.Value or 0.4
-        local cd = t.Configuration:FindFirstChild("Cooldown") and t.Configuration.Cooldown.Value or 0.5
-        return t, ct, cd
+    if bestTool then
+        local config = bestTool.Configuration
+        local data = config:FindFirstChild("Data")
+        local ct = data and data:FindFirstChild("ChargeTime") and data.ChargeTime.Value or 0.4
+        local cd = config:FindFirstChild("Cooldown") and config.Cooldown.Value or 0.5
+        return bestTool, maxTier, ct, cd
     end
     return nil
 end
@@ -72,18 +81,34 @@ task.spawn(function()
         task.wait(0.1)
         if active then
             pcall(function()
-                local root = plr.Character.HumanoidRootPart
-                local cam = workspace.CurrentCamera
-                local tool, cTime, cd = autoGetTool()
+                local char = plr.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then return end
                 
-                if not tool then log.Text = "Status: No Pickaxe found!"; return end
-                if tool.Parent ~= plr.Character then tool.Parent = plr.Character end 
+                local root = char.HumanoidRootPart
+                local cam = workspace.CurrentCamera
+                
+                -- Ищем лучшую кирку каждую итерацию (на случай, если купили новую)
+                local tool, toolTier, cTime, cd = getBestPickaxe()
+                
+                if not tool then 
+                    log.Text = "Status: No Pickaxe in inventory!" 
+                    return 
+                end
+                
+                -- Экипируем, если не в руках
+                if tool.Parent ~= char then tool.Parent = char end 
 
-                -- АВТО-ПОИСК АБИССАЛИТА
+                -- ПОИСК ПОДХОДЯЩЕЙ РУДЫ
                 local target = nil
                 for _, v in pairs(workspace.WorldSpawn.Ores:GetChildren()) do
-                    if v.Name == targetOre and v:FindFirstChild("Hittable") and v.Hittable:FindFirstChild("Part") then
-                        target = v; break
+                    if table.find(targetOres, v.Name) and v:FindFirstChild("Hittable") then
+                        -- Проверка Tier руды
+                        local oreTier = v:FindFirstChild("Configuration") and v.Configuration:FindFirstChild("Tier") and v.Configuration.Tier.Value or 0
+                        
+                        if toolTier >= oreTier then
+                            target = v
+                            break
+                        end
                     end
                 end
 
@@ -92,13 +117,13 @@ task.spawn(function()
                     local realPart = target.Hittable.Part
                     local targetPos = realPart.Position
                     
-                    -- ТП + Взгляд
+                    -- Телепорт и поворот
                     local lookCF = CFrame.lookAt(targetPos + Vector3.new(0, 4, 5), targetPos)
                     root.CFrame = lookCF
                     cam.CFrame = CFrame.lookAt(cam.CFrame.Position, targetPos)
                     toggleFloor(true, root.CFrame)
                     
-                    log.Text = "Mining: " .. targetOre
+                    log.Text = "Mining: " .. target.Name .. " (Tier " .. toolTier .. " vs " .. (target.Configuration.Tier.Value or 0) .. ")"
                     
                     InputRem:FireServer(tool, true)
                     
@@ -119,7 +144,7 @@ task.spawn(function()
                     isMining = false
                     
                 elseif not target then
-                    log.Text = "Status: Searching " .. targetOre .. "..."
+                    log.Text = "Status: No reachable ores for Tier " .. toolTier
                     if (root.Position - basePos).Magnitude > 10 then
                         root.CFrame = CFrame.new(basePos)
                         toggleFloor(true, root.CFrame)
